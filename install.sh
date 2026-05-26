@@ -182,9 +182,17 @@ if [ "$DRY_RUN" = true ]; then
 
     if [ "$SHOW_SECRETS" = true ]; then
         echo "Warning: token is shown in clear text below. Do not paste this anywhere shared." >&2
-        echo "sudo GITHUB_TOKEN='$GITHUB_TOKEN' $PERSISTENT_SCRIPT$rendered_args"
+        if [ "$EUID" -eq 0 ]; then
+            echo "GITHUB_TOKEN='$GITHUB_TOKEN' $PERSISTENT_SCRIPT$rendered_args"
+        else
+            echo "sudo GITHUB_TOKEN='$GITHUB_TOKEN' $PERSISTENT_SCRIPT$rendered_args"
+        fi
     else
-        echo "sudo -E GITHUB_TOKEN=\"\$GITHUB_TOKEN\" $PERSISTENT_SCRIPT$rendered_args"
+        if [ "$EUID" -eq 0 ]; then
+            echo "GITHUB_TOKEN=\"\$GITHUB_TOKEN\" $PERSISTENT_SCRIPT$rendered_args"
+        else
+            echo "sudo -E GITHUB_TOKEN=\"\$GITHUB_TOKEN\" $PERSISTENT_SCRIPT$rendered_args"
+        fi
     fi
     echo "----------------------------------------------------------------------"
     echo "When finished, remove the payload: rm -f $PERSISTENT_SCRIPT"
@@ -192,8 +200,18 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 echo "Info: Initiating the primary infrastructure bootstrap sequence."
-# Pass the token via env, not argv — keeps it out of `ps`, sudo logs, and shell history.
-# Forward any post-`--` arguments verbatim to bootstrap.sh.
-sudo GITHUB_TOKEN="$GITHUB_TOKEN" "$TMP_SCRIPT" "${BOOTSTRAP_ARGS[@]}"
+# Caller is either already root (some hosts have sudo disabled — e.g. a
+# Puppet-managed nsswitch.conf with `sudoers: sss` and no central rule for
+# root) or a regular user who needs sudo escalation. Branch accordingly.
+#
+# In both branches the token is passed via the environment, not argv, to
+# keep it out of `ps` output, sudo's audit log, and shell history. Any
+# post-`--` arguments are forwarded verbatim to bootstrap.sh.
+if [ "$EUID" -eq 0 ]; then
+    echo "Notice: Running as root; invoking bootstrap directly without sudo."
+    GITHUB_TOKEN="$GITHUB_TOKEN" "$TMP_SCRIPT" "${BOOTSTRAP_ARGS[@]}"
+else
+    sudo GITHUB_TOKEN="$GITHUB_TOKEN" "$TMP_SCRIPT" "${BOOTSTRAP_ARGS[@]}"
+fi
 
 echo "Info: Bootstrap sequence completed; temporary artifacts will be purged on exit."

@@ -162,6 +162,20 @@ documented in `SETUP.md`.
   packages, so air-gapped or proxy-misconfigured hosts fail fast
   rather than after multi-minute `dnf install` operations.
 
+- **Root vs sudo invocation.** The installer checks the calling
+  user's effective UID and dispatches accordingly. If invoked
+  directly as root (`EUID == 0`), it runs `bootstrap.sh` directly,
+  skipping `sudo`. Otherwise it escalates with `sudo` and forwards
+  the token through the environment. The direct-root path exists
+  for hosts where `sudo` is unavailable — for example, a
+  Puppet-managed `/etc/nsswitch.conf` with `sudoers: sss` and no
+  central rule for root, which makes the local `/etc/sudoers` file
+  ignored. On such hosts `sudo` rejects even root with "not in the
+  sudoers file"; the direct-root path lets the installer complete
+  anyway, because `bootstrap.sh`'s own requirement is `EUID == 0`,
+  not "reached via sudo". The standard `sudo -i` flow in the Quick
+  Start above continues to work on hosts with functional sudo.
+
 ## Troubleshooting
 
 **`Critical: Token validation failed (HTTP 401)`** — the PAT was
